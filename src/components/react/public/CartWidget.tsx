@@ -4,7 +4,7 @@ import { useCartStore } from '@/stores/cartStore';
 import { formatPrice } from '@/lib/pricing';
 import { buildInstagramOrderParts } from '@/lib/format-order';
 import { repriceCartItems } from '@/lib/reprice-cart';
-import { parseSauceConfig, calculateCartTotals } from '@/lib/cart-math';
+import { parseSauceConfig, calculateCartTotals, applySaucePricing } from '@/lib/cart-math';
 import { lockBodyScroll, unlockBodyScroll } from '@/lib/scroll-lock';
 import CartAddonsUpsell from './CartAddonsUpsell';
 
@@ -75,6 +75,9 @@ export default function CartWidget({ igHandle, saucePricingConfigRaw }: Props) {
 
   const sauceConfig = useMemo(() => parseSauceConfig(saucePricingConfigRaw), [saucePricingConfigRaw]);
 
+  // Sauce prices as charged under the current promo rules (what the cart lines show).
+  const pricedItems = useMemo(() => applySaucePricing(items, sauceConfig), [items, sauceConfig]);
+
   const { totalCents, discountCents, subtotalCents, eligibleSpendCents } = useMemo(
     () => calculateCartTotals(items, sauceConfig),
     [items, sauceConfig]
@@ -84,8 +87,8 @@ export default function CartWidget({ igHandle, saucePricingConfigRaw }: Props) {
   const showStickyBar = isMounted && !open && itemCount > 0 && allowMobileStickyBar && !handoff;
 
   const partCount = useMemo(
-    () => (items.length === 0 ? 0 : buildInstagramOrderParts(items, discountCents, totalCents).length),
-    [items, discountCents, totalCents],
+    () => (pricedItems.length === 0 ? 0 : buildInstagramOrderParts(pricedItems, discountCents, totalCents).length),
+    [pricedItems, discountCents, totalCents],
   );
 
   useEffect(() => {
@@ -187,7 +190,7 @@ export default function CartWidget({ igHandle, saucePricingConfigRaw }: Props) {
       priceRefreshFailed = true;
     }
 
-    const parts = buildInstagramOrderParts(workingItems, workingDiscount, workingTotal);
+    const parts = buildInstagramOrderParts(applySaucePricing(workingItems, sauceConfig), workingDiscount, workingTotal);
     setHandoff({
       parts,
       partIndex: 0,
@@ -416,7 +419,7 @@ export default function CartWidget({ igHandle, saucePricingConfigRaw }: Props) {
                 {items.length === 0 ? (
                   <p className="text-[14px] text-[var(--color-fg-muted)]">Your cart is empty.</p>
                 ) : (
-                  items.map((item) => (
+                  pricedItems.map((item) => (
                     <div key={item.cartId} className="border border-[var(--color-surface-sunken)] rounded-[var(--radius-card)] p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">

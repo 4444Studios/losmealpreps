@@ -49,10 +49,43 @@ export interface CartMathResult {
   totalCents: number;
 }
 
-export function calculateCartTotals(items: CartItem[], config: SaucePricingConfig): CartMathResult {
+/** The per-sauce price a customer sees: in promo mode, never above the promo single price. */
+export function sauceLinePriceCents(ownPriceCents: number, config: SaucePricingConfig): number {
+  return config.pricing_mode === 'promo' ? Math.min(ownPriceCents, config.single_price_cents) : ownPriceCents;
+}
+
+/**
+ * Cart items with sauce prices (add-ons and custom-meal side sauces) set to what the customer
+ * is charged per sauce, so cart lines, the subtotal and the order message all agree.
+ * The store keeps each sauce's own price so repricing and switching modes still work.
+ */
+export function applySaucePricing(items: CartItem[], config: SaucePricingConfig): CartItem[] {
+  return items.map((item) => {
+    if (item.kind === 'addon') {
+      const priceCents = sauceLinePriceCents(item.addon.priceCents, config);
+      return priceCents === item.addon.priceCents ? item : { ...item, addon: { ...item.addon, priceCents } };
+    }
+    if (item.kind === 'custom' && item.build.sideSaucePriceCents > 0) {
+      const sidePrice = sauceLinePriceCents(item.build.sideSaucePriceCents, config);
+      if (sidePrice === item.build.sideSaucePriceCents) return item;
+      return {
+        ...item,
+        build: {
+          ...item.build,
+          sideSaucePriceCents: sidePrice,
+          totalCents: item.build.totalCents - item.build.sideSaucePriceCents + sidePrice,
+        },
+      };
+    }
+    return item;
+  });
+}
+
+export function calculateCartTotals(rawItems: CartItem[], config: SaucePricingConfig): CartMathResult {
+  const items = applySaucePricing(rawItems, config);
   let subtotalCents = 0;
   let eligibleSpendCents = 0;
-  // What each sauce in the cart was charged at its own price (side sauces + add-ons).
+  // What each sauce in the cart is listed at (side sauces + add-ons).
   const saucePrices: number[] = [];
 
   // 1. Raw subtotal; sauces are excluded from the spend that unlocks the free sauce
@@ -96,7 +129,7 @@ export function calculateCartTotals(items: CartItem[], config: SaucePricingConfi
     newSaucesCost = actualSauceCost - freeSauceCents;
   }
 
-  // Promo prices never charge more than the sauces' own prices.
+  // The deal never charges more than the listed sauce prices.
   const discountCents = Math.max(0, actualSauceCost - newSaucesCost);
 
   return {
