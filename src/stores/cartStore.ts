@@ -44,11 +44,20 @@ export interface BundleCartSummary {
   mealNames: string[];
 }
 
+export interface AddonCartSummary {
+  id: string;
+  name: string;
+  priceCents: number;
+  /** Size variant the price came from; absent on carts saved before sizes were tracked. */
+  variantId?: string;
+  sizeLabel?: string;
+}
+
 export type CartItem =
   | { kind: 'meal';   cartId: string; meal: Meal }
   | { kind: 'custom'; cartId: string; build: CustomBuildSummary }
   | { kind: 'bundle'; cartId: string; bundle: BundleCartSummary }
-  | { kind: 'addon';  cartId: string; addon: { id: string; name: string; priceCents: number } };
+  | { kind: 'addon';  cartId: string; addon: AddonCartSummary };
 
 interface CartState {
   activeBundleId: string | null;
@@ -70,7 +79,7 @@ interface CartState {
   addMealItem: (meal: Meal) => void;
   addCustomItem: (build: CustomBuildSummary) => void;
   addBundleItem: (bundle: BundleCartSummary) => void;
-  addAddonItem: (addon: { id: string; name: string; priceCents: number }) => void;
+  addAddonItem: (addon: AddonCartSummary) => void;
   replaceItems: (items: CartItem[]) => void;
   removeItem: (cartId: string) => void;
   clearItems: () => void;

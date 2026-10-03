@@ -172,7 +172,8 @@ export function formatFullOrder(items: CartItem[], discountCents: number = 0, fi
   if (addonItems.length > 0) {
     msg += `Add-ons:\n`;
     addonItems.forEach((item) => {
-      msg += `- ${item.addon.name} ${formatPrice(item.addon.priceCents)}\n`;
+      const size = item.addon.sizeLabel ? ` (${item.addon.sizeLabel})` : '';
+      msg += `- ${item.addon.name}${size} ${formatPrice(item.addon.priceCents)}\n`;
     });
     msg += '\n';
   }

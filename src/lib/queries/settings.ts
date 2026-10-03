@@ -6,6 +6,8 @@ export const SETTINGS_DEFAULTS: Record<string, string> = {
   tagline: 'Chef-made · Macro-tracked · Fresh, never frozen',
   contact_email: 'losmealpreps@gmail.com',
   sauce_pricing_config: JSON.stringify({
+    pricing_mode: 'promo',
+    free_sauce_pick: 'cheapest',
     single_price_cents: 150,
     pair_price_cents: 250,
     free_threshold_cents: 6000,

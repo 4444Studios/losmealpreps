@@ -1,12 +1,25 @@
 import type { CartItem } from '@/stores/cartStore';
 
+/**
+ * - 'promo': every sauce is charged the promo prices below (single / pair), whatever its own price.
+ * - 'individual': every sauce is charged its own size price; no pair deal.
+ */
+export type SaucePricingMode = 'promo' | 'individual';
+
+/** Which sauce the free-sauce reward applies to (only matters in 'individual' mode). */
+export type FreeSaucePick = 'cheapest' | 'most_expensive';
+
 export interface SaucePricingConfig {
+  pricing_mode: SaucePricingMode;
+  free_sauce_pick: FreeSaucePick;
   single_price_cents: number;
   pair_price_cents: number;
   free_threshold_cents: number;
 }
 
 export const DEFAULT_SAUCE_CONFIG: SaucePricingConfig = {
+  pricing_mode: 'promo',
+  free_sauce_pick: 'cheapest',
   single_price_cents: 150,
   pair_price_cents: 250,
   free_threshold_cents: 6000,
@@ -17,6 +30,8 @@ export function parseSauceConfig(raw?: string | null): SaucePricingConfig {
   try {
     const parsed = JSON.parse(raw);
     return {
+      pricing_mode: parsed.pricing_mode === 'individual' ? 'individual' : 'promo',
+      free_sauce_pick: parsed.free_sauce_pick === 'most_expensive' ? 'most_expensive' : 'cheapest',
       single_price_cents: typeof parsed.single_price_cents === 'number' ? parsed.single_price_cents : DEFAULT_SAUCE_CONFIG.single_price_cents,
       pair_price_cents: typeof parsed.pair_price_cents === 'number' ? parsed.pair_price_cents : DEFAULT_SAUCE_CONFIG.pair_price_cents,
       free_threshold_cents: typeof parsed.free_threshold_cents === 'number' ? parsed.free_threshold_cents : DEFAULT_SAUCE_CONFIG.free_threshold_cents,
@@ -36,10 +51,11 @@ export interface CartMathResult {
 
 export function calculateCartTotals(items: CartItem[], config: SaucePricingConfig): CartMathResult {
   let subtotalCents = 0;
-  let sauceCount = 0;
   let eligibleSpendCents = 0;
+  // What each sauce in the cart was charged at its own price (side sauces + add-ons).
+  const saucePrices: number[] = [];
 
-  // 1. Calculate raw subtotal and count sauces
+  // 1. Raw subtotal; sauces are excluded from the spend that unlocks the free sauce
   for (const item of items) {
     if (item.kind === 'meal') {
       subtotalCents += item.meal.base_price_cents;
@@ -49,61 +65,45 @@ export function calculateCartTotals(items: CartItem[], config: SaucePricingConfi
       eligibleSpendCents += item.bundle.totalCents;
     } else if (item.kind === 'custom') {
       subtotalCents += item.build.totalCents;
-      // Subtract side sauce from eligible spend (the side sauce price is included in totalCents)
       const sideSaucePrice = item.build.sideSaucePriceCents || 0;
-      eligibleSpendCents += (item.build.totalCents - sideSaucePrice);
-      if (sideSaucePrice > 0) {
-        sauceCount++;
-      }
+      eligibleSpendCents += item.build.totalCents - sideSaucePrice;
+      if (sideSaucePrice > 0) saucePrices.push(sideSaucePrice);
     } else if (item.kind === 'addon') {
       subtotalCents += item.addon.priceCents;
-      // Addons (like sauces) are excluded from eligible spend
-      sauceCount++;
+      saucePrices.push(item.addon.priceCents);
     }
   }
 
-  // 2. Apply rules
-  let discountCents = 0;
-  let remainingSauces = sauceCount;
+  const sauceCount = saucePrices.length;
+  const actualSauceCost = saucePrices.reduce((sum, p) => sum + p, 0);
+  const freeSauceUnlocked = sauceCount > 0 && eligibleSpendCents >= config.free_threshold_cents;
 
-  // Rule 1: Free sauce if spend >= threshold
-  if (eligibleSpendCents >= config.free_threshold_cents && remainingSauces > 0) {
-    remainingSauces--; // One is free
-    // The "base" price of a sauce that we are making free is the single_price_cents
-    // wait, what if the sideSaucePriceCents in a custom meal was different? 
-    // To be safe, we assume all sauces have a base price equal to single_price_cents for the discount math.
-    // However, if the cart had a side sauce that was 150 cents, making it free means a 150 cent discount.
-  }
-
-  // Rule 2: Tiered pricing for remaining sauces
-  const pairs = Math.floor(remainingSauces / 2);
-  const singles = remainingSauces % 2;
-  const newSaucesCost = (pairs * config.pair_price_cents) + (singles * config.single_price_cents);
-
-  // The raw cost of sauces added to the subtotal is roughly (sauceCount * config.single_price_cents)
-  // Let's accurately calculate how much was actually added to `subtotalCents` for sauces:
-  let actualSauceCostInSubtotal = 0;
-  for (const item of items) {
-    if (item.kind === 'custom' && item.build.sideSaucePriceCents) {
-      actualSauceCostInSubtotal += item.build.sideSaucePriceCents;
-    } else if (item.kind === 'addon') {
-      actualSauceCostInSubtotal += item.addon.priceCents;
+  // 2. What the sauces should cost under the configured rules
+  let newSaucesCost: number;
+  if (config.pricing_mode === 'promo') {
+    // Every sauce costs the same promo price, so which one is free doesn't matter.
+    const paidSauces = sauceCount - (freeSauceUnlocked ? 1 : 0);
+    const pairs = Math.floor(paidSauces / 2);
+    const singles = paidSauces % 2;
+    newSaucesCost = pairs * config.pair_price_cents + singles * config.single_price_cents;
+  } else {
+    let freeSauceCents = 0;
+    if (freeSauceUnlocked) {
+      freeSauceCents = config.free_sauce_pick === 'most_expensive'
+        ? Math.max(...saucePrices)
+        : Math.min(...saucePrices);
     }
+    newSaucesCost = actualSauceCost - freeSauceCents;
   }
 
-  // The discount is what we originally charged for sauces MINUS what they should cost now
-  discountCents = actualSauceCostInSubtotal - newSaucesCost;
-
-  // Ensure discount isn't negative (e.g. if config pairs > 2 * single price, which is weird but possible)
-  if (discountCents < 0) discountCents = 0;
-
-  const totalCents = subtotalCents - discountCents;
+  // Promo prices never charge more than the sauces' own prices.
+  const discountCents = Math.max(0, actualSauceCost - newSaucesCost);
 
   return {
     subtotalCents,
     sauceCount,
     eligibleSpendCents,
     discountCents,
-    totalCents,
+    totalCents: subtotalCents - discountCents,
   };
 }

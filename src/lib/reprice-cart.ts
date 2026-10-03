@@ -28,6 +28,7 @@ export async function repriceCartItems(items: CartItem[]): Promise<{ items: Cart
   const ingredientIds = new Set<string>();
   const variantIds = new Set<string>();
   items.forEach((item) => {
+    if (item.kind === 'addon' && item.addon.variantId) variantIds.add(item.addon.variantId);
     if (item.kind !== 'custom' || !item.build.selection) return;
     const s = item.build.selection;
     ingredientIds.add(s.proteinId);
@@ -86,6 +87,13 @@ export async function repriceCartItems(items: CartItem[]): Promise<{ items: Cart
         item.bundle.totalCents;
       if (newTotal !== item.bundle.totalCents) hadPriceChanges = true;
       return { ...item, bundle: { ...item.bundle, totalCents: newTotal } };
+    }
+
+    if (item.kind === 'addon') {
+      const latest = item.addon.variantId ? variantById.get(item.addon.variantId) : undefined;
+      if (!latest) return item;
+      if (latest.price_cents !== item.addon.priceCents) hadPriceChanges = true;
+      return { ...item, addon: { ...item.addon, priceCents: latest.price_cents } };
     }
 
     if (item.kind !== 'custom' || !item.build?.selection) return item;

@@ -467,7 +467,7 @@ export default function CartWidget({ igHandle, saucePricingConfigRaw }: Props) {
                           ) : (
                             <>
                               <p className="text-[14px] font-semibold text-[var(--color-fg)] break-words">
-                                {item.addon.name}
+                                {item.addon.name}{item.addon.sizeLabel ? ` (${item.addon.sizeLabel})` : ''}
                               </p>
                               <p className="text-[12px] text-[var(--color-fg-muted)]">Add-on</p>
                               <p className="text-[12px] text-[var(--color-brand)] mt-1">
